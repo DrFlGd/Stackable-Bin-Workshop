@@ -2,7 +2,7 @@
 
 Parametric OpenSCAD generator for CNC-cut, stackable screw/storage bins. The model was reconstructed from the original S/M/L DXF families and generalized so stock thickness, cutter diameter, relief style, and overall bin size can be changed independently.
 
-![Assembly render](docs/assembly.svg)
+![OpenSCAD assembly render](docs/assembly.png)
 
 ## Features
 
@@ -13,13 +13,11 @@ Parametric OpenSCAD generator for CNC-cut, stackable screw/storage bins. The mod
 - **Independent fit clearance** — `fit_clearance` changes female mortise width without changing cutter geometry.
 - **Flat and assembled outputs** — export a CNC layout to DXF or inspect the assembled 3D model.
 
-## Flat layout
-
-![Representative flat layout](docs/layout.svg)
-
 ## Relief geometry
 
-![Dogbone and T-bone relief comparison](docs/relief-options.svg)
+![OpenSCAD relief test render](docs/relief-test.png)
+
+Both README images are rendered directly from `stackable_bin.scad` by OpenSCAD. No hand-drawn or substitute vector previews are used.
 
 The relief geometry is controlled by the actual cutter diameter:
 
@@ -94,6 +92,10 @@ openscad -o custom-bin.dxf \
 Measure the actual sheet with calipers and use that value for `wood_thickness`. Set `bit_diameter` to the measured or known cutter diameter. Tune `fit_clearance` separately for your machine, material, and preferred press/slip fit.
 
 Before cutting a full sheet, `output="relief_test"` provides a compact comparison of the unrelieved, dogbone, and T-bone slot geometry.
+
+## Render automation
+
+[GitHub Actions](.github/workflows/render-openscad.yml) regenerates the PNG previews with OpenSCAD whenever the model or render workflow changes, then commits the updated renders under `docs/`.
 
 ## Source
 
