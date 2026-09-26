@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 690" role="img" aria-labelledby="title desc">
+<title id="title">Flat CNC layout</title><desc id="desc">Representative flat layout for the stackable bin parts.</desc>
+<rect width="1200" height="690" fill="#111214"/>
+<g fill="#d8d8d8" stroke="#050505" stroke-width="8" stroke-linejoin="round">
+  <path d="M70 80 L250 80 L250 65 Q250 55 260 55 L300 55 Q310 55 310 65 L310 80 L390 80 Q420 80 420 110 L420 285 Q420 315 390 315 L310 315 L310 330 Q310 340 300 340 L260 340 Q250 340 250 330 L250 315 L170 315 L55 205 L55 185 Z"/>
+  <path d="M70 375 L250 375 L250 360 Q250 350 260 350 L300 350 Q310 350 310 360 L310 375 L390 375 Q420 375 420 405 L420 580 Q420 610 390 610 L310 610 L310 625 Q310 635 300 635 L260 635 Q250 635 250 625 L250 610 L170 610 L55 500 L55 480 Z"/>
+  <path d="M525 80 H850 V305 H525 Z"/><path d="M525 390 H850 V610 H525 Z"/><path d="M930 420 H1155 V575 H930 Z"/>
+</g>
+<g fill="#111214">
+  <rect x="363" y="150" width="18" height="92" rx="9"/><circle cx="363" cy="150" r="10"/><circle cx="381" cy="150" r="10"/><circle cx="363" cy="242" r="10"/><circle cx="381" cy="242" r="10"/>
+  <rect x="212" y="270" width="90" height="18" rx="9"/><circle cx="212" cy="270" r="10"/><circle cx="212" cy="288" r="10"/><circle cx="302" cy="270" r="10"/><circle cx="302" cy="288" r="10"/>
+  <g transform="translate(100 235) rotate(45)"><rect x="0" y="0" width="75" height="18" rx="9"/><circle cx="0" cy="0" r="10"/><circle cx="0" cy="18" r="10"/><circle cx="75" cy="0" r="10"/><circle cx="75" cy="18" r="10"/></g>
+  <rect x="363" y="445" width="18" height="92" rx="9"/><circle cx="363" cy="445" r="10"/><circle cx="381" cy="445" r="10"/><circle cx="363" cy="537" r="10"/><circle cx="381" cy="537" r="10"/>
+  <rect x="212" y="565" width="90" height="18" rx="9"/><circle cx="212" cy="565" r="10"/><circle cx="212" cy="583" r="10"/><circle cx="302" cy="565" r="10"/><circle cx="302" cy="583" r="10"/>
+  <g transform="translate(100 530) rotate(45)"><rect x="0" y="0" width="75" height="18" rx="9"/><circle cx="0" cy="0" r="10"/><circle cx="0" cy="18" r="10"/><circle cx="75" cy="0" r="10"/><circle cx="75" cy="18" r="10"/></g>
+</g>
+<g fill="#d8d8d8" stroke="#050505" stroke-width="8">
+  <rect x="510" y="145" width="30" height="64"/><rect x="835" y="145" width="30" height="64"/><rect x="510" y="485" width="30" height="64"/><rect x="835" y="485" width="30" height="64"/><rect x="915" y="455" width="30" height="46"/><rect x="1140" y="455" width="30" height="46"/>
+</g>
+<text x="600" y="662" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#ececec">Representative M-size flat layout</text>
+</svg>
