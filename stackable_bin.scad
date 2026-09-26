@@ -1,0 +1,369 @@
+/*
+  Parametric stackable screw box
+  Reconstructed from the supplied S / M / L DXF sets.
+
+  Units: millimetres.
+
+  The source DXFs correspond approximately to nominal stack-pitch sizes:
+      S = [ 90, 120,  80]  // width, depth, height
+      M = [120, 160, 100]
+      L = [150, 200, 120]
+
+  Their raw 2D extents vary slightly with stock thickness because of rounded
+  corners, joinery and stacking keys.  This model instead treats bin_size as
+  the nominal outside width/depth and stacking pitch height, so changing the
+  wood thickness does not unexpectedly resize the requested bin.
+
+  Main outputs:
+      output = "layout"    -> flat CNC parts, suitable for DXF export
+      output = "assembly"  -> 3D assembly preview
+      output = "side"      -> one side panel
+      output = "back"      -> back panel
+      output = "bottom"    -> bottom panel
+      output = "front"     -> sloping front panel
+
+  CNC relief:
+      relief_type = "none", "dogbone", or "tbone".
+      Every relief arc is generated from bit_diameter / 2.
+      Dogbones use a 45-degree cutter-center excursion.
+      T-bones put the cutter center on the joint edge, one cutter radius
+      from the corner, preserving the nominal tab/slot end position.
+
+  Suggested workflow:
+      1. Set preset or custom_size.
+      2. Set wood_thickness to measured material thickness.
+      3. Set bit_diameter to the actual cutter diameter.
+      4. Set output="layout" and Export -> DXF in OpenSCAD.
+*/
+
+$fn = 48;
+inch = 25.4;
+
+// ----------------------------- User parameters -----------------------------
+preset = "M";                 // [S,M,L,custom]
+custom_size = [120,160,100];   // [outside width, outside depth, stack pitch height]
+wood_thickness = 0.25*inch;    // measure the actual sheet for best fit
+bit_diameter = 3.70;           // actual cutter diameter; defines every relief arc
+relief_type = "tbone";         // [none,dogbone,tbone]
+fit_clearance = 0.15;          // added to female slot width only
+output = "layout";             // [layout,assembly,side,back,bottom,front,relief_test]
+layout_gap = 12;
+
+// Design parameters recovered/generalized from the DXFs.
+stack_key_height = 3.0;
+edge_land = 9.0;               // material left outside bottom/back panel centreline
+front_angle = 44;              // degrees from horizontal, rising toward bin front
+front_panel_ratio = 0.375;     // front panel length ~= 3/8 of depth
+floor_front_ratio = 0.300;     // floor begins ~= 30% of depth from front
+rear_corner_radius = 10;       // outside rear side-panel radius
+nose_gap_ratio = 0.085;        // short vertical nose as fraction of height
+
+// ----------------------------- Derived values ------------------------------
+size = preset == "S" ? [90,120,80] :
+       preset == "M" ? [120,160,100] :
+       preset == "L" ? [150,200,120] : custom_size;
+
+W = size[0];
+D = size[1];
+H = size[2];
+t = wood_thickness;
+r = bit_diameter/2;
+
+floor_front = floor_front_ratio*D;
+bottom_z = edge_land + t/2;
+back_y = D - edge_land - t/2;
+bottom_depth = (back_y - t/2) - floor_front;
+front_len = front_panel_ratio*D;
+front_dx = cos(front_angle)*front_len;
+front_dz = sin(front_angle)*front_len;
+
+// Keep the sloping panel inside the side silhouette for very shallow custom bins.
+front_len_safe = min(front_len, (floor_front-2)/max(0.01,cos(front_angle)));
+
+function clamp(v, lo, hi) = min(max(v,lo),hi);
+function tab_count(span) = span > 110 ? 2 : 1;
+function tab_centers(span, n) = n == 1 ? [span/2] : [span/4, 3*span/4];
+function back_tab_length(span,n) = n == 1 ? clamp(span/4 + 10, 24, 40) : clamp(span/6, 18, 30);
+function bottom_tab_length(span,n) = n == 1 ? clamp(0.40*span, 24, 40) : clamp(span/4, 24, 32);
+function front_tab_length(span) = span >= 70 ? 30 : span >= 55 ? 20 : clamp(span/2.6, 16, 20);
+
+back_n = tab_count(H);
+back_centers = tab_centers(H, back_n);
+back_tab = back_tab_length(H,back_n);
+
+bottom_n = tab_count(bottom_depth);
+bottom_centers = tab_centers(bottom_depth,bottom_n);
+bottom_tab = bottom_tab_length(bottom_depth,bottom_n);
+front_tab = front_tab_length(front_len_safe);
+
+assert(W > 2*t + 20, "bin width is too small for this stock thickness");
+assert(D > 50, "bin depth is too small");
+assert(H > 35, "bin height is too small");
+assert(bottom_depth > 25, "bottom panel became too short; increase depth or reduce edge_land");
+assert(bit_diameter > 0, "bit_diameter must be positive");
+assert(relief_type == "none" || relief_type == "dogbone" || relief_type == "tbone",
+       "relief_type must be none, dogbone, or tbone");
+
+// ------------------------------ 2D helpers ---------------------------------
+module capsule_x(len, rad) {
+    // Capsule centered at origin, long direction X, total width 2*rad.
+    hull() {
+        translate([-max(0,len/2-rad),0]) circle(r=rad);
+        translate([ max(0,len/2-rad),0]) circle(r=rad);
+    }
+}
+
+module relieved_slot(length, width, cutter=bit_diameter, relief=relief_type) {
+    // Long direction is local X.  The square() is the nominal mortise.
+    // Relief circles represent the actual cutter diameter.
+    rr = cutter/2;
+    db = rr/sqrt(2);
+
+    union() {
+        square([length,width],center=true);
+
+        if (rr > 0 && relief == "dogbone") {
+            // Minimal dogbone: move the cutter center toward each internal
+            // corner along the 45-degree bisector until the cutter reaches it.
+            // The center stays inside the mortise, while the cutter sweeps a
+            // small diagonal lobe beyond both nominal walls.
+            for (sx=[-1,1], sy=[-1,1])
+                translate([
+                    sx*(length/2-db),
+                    sy*(width/2-db)
+                ]) circle(r=rr);
+        }
+        else if (rr > 0 && relief == "tbone") {
+            // T-bone: cutter center lies on the long wall and one radius
+            // inboard from the slot end.  This clears the square corner while
+            // keeping the nominal mortise length unchanged.
+            for (sx=[-1,1], sy=[-1,1])
+                translate([
+                    sx*(length/2-rr),
+                    sy*width/2
+                ]) circle(r=rr);
+        }
+    }
+}
+
+module shoulder_relief(corner=[0,0], void_dir=[1,1], cutter=bit_diameter, relief=relief_type) {
+    // Relief for a concave corner on an OUTER profile, such as where a male
+    // tab meets the panel body.  This module is intended to be SUBTRACTED.
+    // void_dir points from the corner into the already-empty region.
+    rr = cutter/2;
+    db = rr/sqrt(2);
+
+    if (rr > 0 && relief == "dogbone")
+        translate([
+            corner[0] + void_dir[0]*db,
+            corner[1] + void_dir[1]*db
+        ]) circle(r=rr);
+    else if (rr > 0 && relief == "tbone")
+        // Put the cutter center one radius past the tab shoulder, on the body
+        // edge. This makes a true T-bone without moving the tab end position.
+        translate([
+            corner[0],
+            corner[1] + void_dir[1]*rr
+        ]) circle(r=rr);
+}
+
+module tabbed_panel_base(panel_w, panel_h, centers, tab_len, do_stack=false) {
+    // Cross-panels have an inset body W-2t and tabs that reach the bin's
+    // outside width.  T-bone shoulder relief is cut into the body.
+    difference() {
+        union() {
+            translate([t,0]) square([panel_w-2*t,panel_h]);
+            for (c=centers) {
+                translate([0,c-tab_len/2]) square([t,tab_len]);
+                translate([panel_w-t,c-tab_len/2]) square([t,tab_len]);
+            }
+            if (do_stack) {
+                key_w = max(2*stack_key_height+2, 0.15*panel_w);
+                for (kx=[0.28*panel_w,0.72*panel_w])
+                    translate([kx,panel_h]) capsule_x(key_w,stack_key_height);
+            }
+        }
+
+        // Cutter relief at the four concave shoulders of each pair of tabs.
+        // The relief circle radius is exactly bit_diameter/2.
+        for (c=centers) {
+            ylo = c-tab_len/2;
+            yhi = c+tab_len/2;
+
+            shoulder_relief([t,ylo],          [-1,-1]);
+            shoulder_relief([t,yhi],          [-1, 1]);
+            shoulder_relief([panel_w-t,ylo],  [ 1,-1]);
+            shoulder_relief([panel_w-t,yhi],  [ 1, 1]);
+        }
+
+        if (do_stack) {
+            key_w = max(2*stack_key_height+2, 0.15*panel_w);
+            for (kx=[0.28*panel_w,0.72*panel_w])
+                translate([kx,0]) capsule_x(key_w,stack_key_height);
+        }
+    }
+}
+
+module rounded_rear_side_body() {
+    // Side silhouette: open/sloping front, horizontal floor/top, rounded rear.
+    // H is the stacking pitch; top keys project another stack_key_height.
+    nose_gap = clamp(nose_gap_ratio*H, 6, 10);
+    nose_mid = 0.50*H;
+    nose_lo = nose_mid - nose_gap/2;
+    nose_hi = nose_mid + nose_gap/2;
+    top_front = floor_front;
+    bottom_front = floor_front;
+    cr = min(rear_corner_radius, H/4, D/8);
+
+    union() {
+        polygon([
+            [bottom_front,0],
+            [D-cr,0],
+            [D-cr,H],
+            [top_front,H],
+            [0,nose_hi],
+            [0,nose_lo]
+        ]);
+        hull() {
+            translate([D-cr,cr]) circle(r=cr);
+            translate([D-cr,H-cr]) circle(r=cr);
+        }
+    }
+}
+
+module side_panel_2d() {
+    side_key_w = max(2*stack_key_height+2, 0.0875*D);
+    top_span = D-floor_front-rear_corner_radius;
+    key_x = [floor_front + 0.27*top_span,
+             floor_front + 0.72*top_span];
+
+    difference() {
+        union() {
+            rounded_rear_side_body();
+            for (kx=key_x)
+                translate([kx,H]) capsule_x(side_key_w,stack_key_height);
+        }
+
+        // Matching stacking recesses on the lower edge.
+        for (kx=key_x)
+            translate([kx,0]) capsule_x(side_key_w,stack_key_height);
+
+        // Back panel mortises.
+        for (cy=back_centers)
+            translate([back_y,cy])
+                rotate(90)
+                    relieved_slot(back_tab, t+fit_clearance);
+
+        // Bottom panel mortises.
+        for (cc=bottom_centers)
+            translate([floor_front+cc,bottom_z])
+                relieved_slot(bottom_tab, t+fit_clearance);
+
+        // Sloping front-panel mortise, centered on its side tab.
+        translate([
+            floor_front-cos(front_angle)*front_len_safe/2,
+            bottom_z+sin(front_angle)*front_len_safe/2
+        ])
+            rotate(180-front_angle)
+                relieved_slot(front_tab, t+fit_clearance);
+    }
+}
+
+module back_panel_2d() {
+    tabbed_panel_base(W,H,back_centers,back_tab,true);
+}
+
+module bottom_panel_2d() {
+    tabbed_panel_base(W,bottom_depth,bottom_centers,bottom_tab,false);
+}
+
+module front_panel_2d() {
+    tabbed_panel_base(W,front_len_safe,[front_len_safe/2],front_tab,false);
+}
+
+// ------------------------------ Flat layout --------------------------------
+module flat_layout() {
+    side_h = H+stack_key_height;
+
+    side_panel_2d();
+    translate([0,side_h+layout_gap]) side_panel_2d();
+
+    translate([D+layout_gap,0]) back_panel_2d();
+    translate([D+layout_gap,H+stack_key_height+layout_gap]) bottom_panel_2d();
+    translate([D+layout_gap+W+layout_gap,0]) front_panel_2d();
+}
+
+// ----------------------------- Relief test ---------------------------------
+module relief_test() {
+    test_len = max(28, 5*t);
+    test_w = t + fit_clearance;
+    gap = 4*bit_diameter + 8;
+
+    difference() {
+        translate([-test_len/2-8,-test_w/2-8])
+            square([test_len+16, 3*(test_w+gap)]);
+
+        translate([0,0])
+            relieved_slot(test_len,test_w,bit_diameter,"none");
+        translate([0,test_w+gap])
+            relieved_slot(test_len,test_w,bit_diameter,"dogbone");
+        translate([0,2*(test_w+gap)])
+            relieved_slot(test_len,test_w,bit_diameter,"tbone");
+    }
+}
+
+// ------------------------------ 3D assembly --------------------------------
+module side_3d(x0=0) {
+    // local 2D [depth,height], extrusion -> global X thickness
+    multmatrix([
+        [0,0,1,x0],
+        [1,0,0,0],
+        [0,1,0,0],
+        [0,0,0,1]
+    ]) linear_extrude(height=t) side_panel_2d();
+}
+
+module back_3d() {
+    // local [width,height], extrusion -> global Y
+    multmatrix([
+        [1,0,0,0],
+        [0,0,1,back_y-t/2],
+        [0,1,0,0],
+        [0,0,0,1]
+    ]) linear_extrude(height=t) back_panel_2d();
+}
+
+module bottom_3d() {
+    translate([0,floor_front,bottom_z-t/2])
+        linear_extrude(height=t) bottom_panel_2d();
+}
+
+module front_3d() {
+    // local X -> width; local Y -> up-and-forward slope; local Z -> panel normal.
+    ca = cos(front_angle);
+    sa = sin(front_angle);
+    multmatrix([
+        [1, 0,  0, 0],
+        [0,-ca, sa, floor_front - sa*t/2],
+        [0, sa, ca, bottom_z - ca*t/2],
+        [0, 0,  0, 1]
+    ]) linear_extrude(height=t) front_panel_2d();
+}
+
+module assembly() {
+    side_3d(0);
+    side_3d(W-t);
+    back_3d();
+    bottom_3d();
+    front_3d();
+}
+
+// -------------------------------- Output -----------------------------------
+if (output == "layout") flat_layout();
+else if (output == "assembly") assembly();
+else if (output == "side") side_panel_2d();
+else if (output == "back") back_panel_2d();
+else if (output == "bottom") bottom_panel_2d();
+else if (output == "front") front_panel_2d();
+else if (output == "relief_test") relief_test();
+else echo("Unknown output mode: ",output);
