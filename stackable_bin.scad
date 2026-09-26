@@ -28,6 +28,8 @@
       Dogbones use a 45-degree cutter-center excursion.
       T-bones put the cutter center on the joint edge, one cutter radius
       from the corner, preserving the nominal tab/slot end position.
+      Stacking-registration tabs/notches use the same cutter-driven relief,
+      so their inside corners are machinable with the selected bit.
 
   Suggested workflow:
       1. Set preset or custom_size.
@@ -167,6 +169,37 @@ module shoulder_relief(corner=[0,0], void_dir=[1,1], cutter=bit_diameter, relief
         ]) circle(r=rr);
 }
 
+
+module stack_key_2d(width, height) {
+    // Nominal male registration tab. Relief at its two concave base
+    // shoulders must be subtracted from the COMPLETE panel union, not just
+    // from this tab, so it is applied by the calling panel module.
+    translate([-width/2,0]) square([width,height]);
+}
+
+module stack_recess_2d(width, depth, cutter=bit_diameter, relief=relief_type, clearance=fit_clearance) {
+    // Female registration notch cut in from an outside edge. The two corners
+    // at the notch floor are true inside corners, so they receive the same
+    // cutter-driven relief logic as the rest of the joinery.
+    rr = cutter/2;
+    db = rr/sqrt(2);
+    w = width + clearance;
+    d = depth + clearance/2;
+
+    union() {
+        translate([-w/2,-0.01]) square([w,d+0.02]);
+
+        if (rr > 0 && relief == "dogbone") {
+            for (sx=[-1,1])
+                translate([sx*(w/2-db), d-db]) circle(r=rr);
+        }
+        else if (rr > 0 && relief == "tbone") {
+            for (sx=[-1,1])
+                translate([sx*(w/2-rr), d]) circle(r=rr);
+        }
+    }
+}
+
 module tabbed_panel_base(panel_w, panel_h, centers, tab_len, do_stack=false) {
     // Cross-panels have an inset body W-2t and tabs that reach the bin's
     // outside width.  T-bone shoulder relief is cut into the body.
@@ -180,7 +213,19 @@ module tabbed_panel_base(panel_w, panel_h, centers, tab_len, do_stack=false) {
             if (do_stack) {
                 key_w = max(2*stack_key_height+2, 0.15*panel_w);
                 for (kx=[0.28*panel_w,0.72*panel_w])
-                    translate([kx,panel_h]) capsule_x(key_w,stack_key_height);
+                    translate([kx,panel_h])
+                        stack_key_2d(key_w,stack_key_height);
+            }
+        }
+
+        // Cutter relief at the concave shoulders where stacking tabs meet
+        // the top panel edge. These cuts act on the whole union so the
+        // shoulder is genuinely machinable with the selected bit.
+        if (do_stack) {
+            key_w = max(2*stack_key_height+2, 0.15*panel_w);
+            for (kx=[0.28*panel_w,0.72*panel_w]) {
+                shoulder_relief([kx-key_w/2,panel_h],[-1,1]);
+                shoulder_relief([kx+key_w/2,panel_h],[ 1,1]);
             }
         }
 
@@ -199,7 +244,8 @@ module tabbed_panel_base(panel_w, panel_h, centers, tab_len, do_stack=false) {
         if (do_stack) {
             key_w = max(2*stack_key_height+2, 0.15*panel_w);
             for (kx=[0.28*panel_w,0.72*panel_w])
-                translate([kx,0]) capsule_x(key_w,stack_key_height);
+                translate([kx,0])
+                    stack_recess_2d(key_w,stack_key_height);
         }
     }
 }
@@ -241,12 +287,22 @@ module side_panel_2d() {
         union() {
             rounded_rear_side_body();
             for (kx=key_x)
-                translate([kx,H]) capsule_x(side_key_w,stack_key_height);
+                translate([kx,H])
+                    stack_key_2d(side_key_w,stack_key_height);
         }
 
-        // Matching stacking recesses on the lower edge.
+        // Matching stacking recesses on the lower edge. These receive
+        // cutter-sized relief at the two inside floor corners.
         for (kx=key_x)
-            translate([kx,0]) capsule_x(side_key_w,stack_key_height);
+            translate([kx,0])
+                stack_recess_2d(side_key_w,stack_key_height);
+
+        // Cutter relief at the concave base shoulders of each upper
+        // registration tab.
+        for (kx=key_x) {
+            shoulder_relief([kx-side_key_w/2,H],[-1,1]);
+            shoulder_relief([kx+side_key_w/2,H],[ 1,1]);
+        }
 
         // Back panel mortises.
         for (cy=back_centers)
