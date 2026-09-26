@@ -1,0 +1,55 @@
+name: Render OpenSCAD previews
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stackable_bin.scad"
+      - ".github/workflows/render-openscad.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenSCAD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openscad xvfb
+
+      - name: Render previews
+        run: |
+          mkdir -p docs
+          xvfb-run -a openscad \
+            -o docs/assembly.png \
+            --imgsize=1200,900 \
+            --viewall --autocenter \
+            --projection=perspective \
+            --colorscheme=Tomorrow \
+            -D 'output="assembly"' \
+            stackable_bin.scad
+
+          xvfb-run -a openscad \
+            -o docs/relief-test.png \
+            --imgsize=1200,600 \
+            --viewall --autocenter \
+            --projection=ortho \
+            --colorscheme=Tomorrow \
+            -D 'output="relief_test"' \
+            stackable_bin.scad
+
+      - name: Commit updated renders
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/assembly.png docs/relief-test.png
+          if ! git diff --cached --quiet; then
+            git commit -m "Update OpenSCAD renders"
+            git push
+          fi
