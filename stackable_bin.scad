@@ -51,7 +51,7 @@ wood_thickness = 0.25*inch;    // measure the actual sheet for best fit
 bit_diameter = 3.70;           // actual cutter diameter; defines every relief arc
 relief_type = "tbone";         // [none,dogbone,tbone]
 fit_clearance = 0.15;          // added to female slot width only
-output = "layout";             // [layout,assembly,side,back,bottom,front,relief_test]
+output = "layout";             // [layout,assembly,side,back,bottom,front,top,lid,relief_test]
 layout_gap = 12;
 
 // Optional closure pieces.
@@ -132,7 +132,8 @@ assert(D > 50, "bin depth is too small");
 assert(H > 35, "bin height is too small");
 assert(bottom_depth > 25, "bottom panel became too short; increase depth or reduce edge_land");
 assert(bit_diameter > 0, "bit_diameter must be positive");
-assert(top_depth > 25, "top panel became too short; increase depth or reduce edge_land");
+assert(!(include_top || include_lid || output == "top") || top_depth > 25,
+       "top panel became too short; increase depth or reduce edge_land");
 assert(lid_open_angle >= 0 && lid_open_angle <= 140,
        "lid_open_angle must be between 0 and 140 degrees");
 assert(relief_type == "none" || relief_type == "dogbone" || relief_type == "tbone",
