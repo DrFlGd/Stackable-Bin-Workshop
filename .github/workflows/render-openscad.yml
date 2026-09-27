@@ -33,6 +33,9 @@ jobs:
             --projection=perspective \
             --colorscheme=Tomorrow \
             -D 'output="assembly"' \
+            -D 'include_top=true' \
+            -D 'include_lid=true' \
+            -D 'lid_open_angle=55' \
             stackable_bin.scad
 
           xvfb-run -a openscad \
