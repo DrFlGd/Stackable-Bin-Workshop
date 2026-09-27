@@ -28,8 +28,9 @@
       Dogbones use a 45-degree cutter-center excursion.
       T-bones put the cutter center on the joint edge, one cutter radius
       from the corner, preserving the nominal tab/slot end position.
-      Stacking-registration tabs/notches use the same cutter-driven relief,
-      so their inside corners are machinable with the selected bit.
+      Stacking registration is a smooth mating S-curve, separate from the
+      dogbone/T-bone joint reliefs. Its concave radius is never smaller than
+      bit_diameter/2, so the selected cutter can machine the profile.
 
   Suggested workflow:
       1. Set preset or custom_size.
@@ -170,34 +171,87 @@ module shoulder_relief(corner=[0,0], void_dir=[1,1], cutter=bit_diameter, relief
 }
 
 
-module stack_key_2d(width, height) {
-    // Nominal male registration tab. Relief at its two concave base
-    // shoulders must be subtracted from the COMPLETE panel union, not just
-    // from this tab, so it is applied by the calling panel module.
-    translate([-width/2,0]) square([width,height]);
+// Smooth stacking-registration profile recovered from the original DXFs.
+// Each flank is an S-curve: circular arc -> tangent -> opposite circular arc.
+// With the default 3 mm key height this closely matches the original M/S
+// geometry. For larger cutters the radius broadens automatically.
+function stack_curve_radius(height, cutter=bit_diameter) =
+    max(height, cutter/2);
+
+function stack_curve_angle(height, radius) =
+    min(45, acos(max(-1, min(1, 1-height/(2*radius)))));
+
+function stack_curve_line(height, radius, angle) =
+    max(0,
+        (height - 2*radius*(1-cos(angle))) /
+        max(0.0001, sin(angle)));
+
+function stack_curve_run(height, radius, angle, line_len) =
+    2*radius*sin(angle) + line_len*cos(angle);
+
+function stack_arc_points(radius, angle, n=10) =
+    [for (i=[0:n])
+        [radius*sin(angle*i/n),
+         radius*(1-cos(angle*i/n))]];
+
+function stack_transition_points(height, cutter=bit_diameter, n=10) =
+    let(
+        radius = stack_curve_radius(height,cutter),
+        angle = stack_curve_angle(height,radius),
+        line_len = stack_curve_line(height,radius,angle),
+        run = stack_curve_run(height,radius,angle,line_len),
+        arc = stack_arc_points(radius,angle,n),
+        arc_end = arc[len(arc)-1],
+        line_end = [
+            arc_end[0] + line_len*cos(angle),
+            arc_end[1] + line_len*sin(angle)
+        ]
+    )
+    concat(
+        arc,
+        line_len > 0 ? [line_end] : [],
+        [for (i=[n-1:-1:0])
+            [run-arc[i][0], height-arc[i][1]]]
+    );
+
+function stack_transition_run(height, cutter=bit_diameter) =
+    let(
+        radius = stack_curve_radius(height,cutter),
+        angle = stack_curve_angle(height,radius),
+        line_len = stack_curve_line(height,radius,angle)
+    )
+    stack_curve_run(height,radius,angle,line_len);
+
+module stack_registration_profile(width, height, cutter=bit_diameter) {
+    // "width" is the desired overall feature width. If a very narrow feature
+    // cannot contain the cutter-safe transitions, retain a small flat crest
+    // and let the transition geometry grow as needed.
+    tr = stack_transition_points(height,cutter,12);
+    run = stack_transition_run(height,cutter);
+    flat = max(2, width-2*run);
+    total = 2*run + flat;
+
+    points = concat(
+        [[-total/2,0]],
+        [for (p=tr) [-total/2+p[0], p[1]]],
+        [[flat/2,height]],
+        [for (i=[len(tr)-1:-1:0])
+            [total/2-tr[i][0], tr[i][1]]],
+        [[total/2,0]]
+    );
+
+    polygon(points=points);
 }
 
-module stack_recess_2d(width, depth, cutter=bit_diameter, relief=relief_type, clearance=fit_clearance) {
-    // Female registration notch cut in from an outside edge. The two corners
-    // at the notch floor are true inside corners, so they receive the same
-    // cutter-driven relief logic as the rest of the joinery.
-    rr = cutter/2;
-    db = rr/sqrt(2);
-    w = width + clearance;
-    d = depth + clearance/2;
+module stack_key_2d(width, height, cutter=bit_diameter) {
+    stack_registration_profile(width,height,cutter);
+}
 
-    union() {
-        translate([-w/2,-0.01]) square([w,d+0.02]);
-
-        if (rr > 0 && relief == "dogbone") {
-            for (sx=[-1,1])
-                translate([sx*(w/2-db), d-db]) circle(r=rr);
-        }
-        else if (rr > 0 && relief == "tbone") {
-            for (sx=[-1,1])
-                translate([sx*(w/2-rr), d]) circle(r=rr);
-        }
-    }
+module stack_recess_2d(width, depth, cutter=bit_diameter, clearance=fit_clearance) {
+    // The mating lower pocket is the same smooth profile with a small normal
+    // offset for fit. No dogbone/T-bone is used for stacking registration.
+    offset(delta=clearance/2)
+        stack_registration_profile(width,depth,cutter);
 }
 
 module tabbed_panel_base(panel_w, panel_h, centers, tab_len, do_stack=false) {
@@ -215,17 +269,6 @@ module tabbed_panel_base(panel_w, panel_h, centers, tab_len, do_stack=false) {
                 for (kx=[0.28*panel_w,0.72*panel_w])
                     translate([kx,panel_h])
                         stack_key_2d(key_w,stack_key_height);
-            }
-        }
-
-        // Cutter relief at the concave shoulders where stacking tabs meet
-        // the top panel edge. These cuts act on the whole union so the
-        // shoulder is genuinely machinable with the selected bit.
-        if (do_stack) {
-            key_w = max(2*stack_key_height+2, 0.15*panel_w);
-            for (kx=[0.28*panel_w,0.72*panel_w]) {
-                shoulder_relief([kx-key_w/2,panel_h],[-1,1]);
-                shoulder_relief([kx+key_w/2,panel_h],[ 1,1]);
             }
         }
 
@@ -291,18 +334,10 @@ module side_panel_2d() {
                     stack_key_2d(side_key_w,stack_key_height);
         }
 
-        // Matching stacking recesses on the lower edge. These receive
-        // cutter-sized relief at the two inside floor corners.
+        // Matching lower registration pockets use the same smooth S-curve.
         for (kx=key_x)
             translate([kx,0])
                 stack_recess_2d(side_key_w,stack_key_height);
-
-        // Cutter relief at the concave base shoulders of each upper
-        // registration tab.
-        for (kx=key_x) {
-            shoulder_relief([kx-side_key_w/2,H],[-1,1]);
-            shoulder_relief([kx+side_key_w/2,H],[ 1,1]);
-        }
 
         // Back panel mortises.
         for (cy=back_centers)
