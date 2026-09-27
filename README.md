@@ -12,6 +12,8 @@ Parametric OpenSCAD generator for CNC-cut, stackable screw/storage bins. The mod
 - **Relief modes** — `none`, `dogbone`, and `tbone`.
 - **Independent fit clearance** — `fit_clearance` changes female mortise width without changing cutter geometry.
 - **Flat and assembled outputs** — export a CNC layout to DXF or inspect the assembled 3D model.
+- **Optional fixed top** — a tabbed top panel uses the same side mortise/tab construction as the bottom.
+- **Optional hinged lid** — a separate front lid pivots from the top panel's front lip and can be previewed open or closed.
 
 ## Relief geometry
 
@@ -38,7 +40,12 @@ relief_type = "tbone"; // [none,dogbone,tbone]
 | `bit_diameter` | `3.70` | Actual CNC cutter diameter |
 | `relief_type` | `"tbone"` | `none`, `dogbone`, or `tbone` |
 | `fit_clearance` | `0.15` | Extra width applied to female slots |
-| `output` | `"layout"` | `layout`, `assembly`, `side`, `back`, `bottom`, `front`, or `relief_test` |
+| `include_top` | `false` | Add the fixed tabbed top panel |
+| `include_lid` | `false` | Add the hinged front lid; also enables the fixed top |
+| `lid_open_angle` | `0` | Lid preview angle; 0° is closed |
+| `lid_side_clearance` | `0.75` | Clearance per side for the lid |
+| `lid_end_clearance` | `1.0` | Clearance where the closed lid meets the front panel |
+| `output` | `"layout"` | `layout`, `assembly`, `side`, `back`, `bottom`, `front`, `top`, `lid`, or `relief_test` |
 
 All dimensions are millimetres. The source defines `inch = 25.4` so imperial stock sizes remain readable.
 
@@ -76,6 +83,19 @@ openscad -o bin-assembly.stl \
   -D 'preset="M"' \
   stackable_bin.scad
 ```
+
+For a closed bin with a fixed top and hinged front lid:
+
+```bash
+openscad -o closed-bin.stl \
+  -D 'output="assembly"' \
+  -D 'include_top=true' \
+  -D 'include_lid=true' \
+  -D 'lid_open_angle=55' \
+  stackable_bin.scad
+```
+
+The lid is designed for external hinge hardware (for example a small piano or butt hinge) mounted along the fixed top panel's front edge. The OpenSCAD model represents the pivot and lid motion, while leaving screw-hole placement hardware-specific.
 
 For a custom 150 × 220 × 120 mm bin:
 
