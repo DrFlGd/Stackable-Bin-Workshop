@@ -21,6 +21,8 @@
       output = "back"      -> back panel
       output = "bottom"    -> bottom panel
       output = "front"     -> sloping front panel
+      output = "top"       -> optional fixed top panel
+      output = "lid"       -> optional hinged front lid
 
   CNC relief:
       relief_type = "none", "dogbone", or "tbone".
@@ -51,6 +53,13 @@ relief_type = "tbone";         // [none,dogbone,tbone]
 fit_clearance = 0.15;          // added to female slot width only
 output = "layout";             // [layout,assembly,side,back,bottom,front,relief_test]
 layout_gap = 12;
+
+// Optional closure pieces.
+include_top = false;           // fixed horizontal top panel
+include_lid = false;           // hinged lid over the upper-front opening
+lid_open_angle = 0;            // degrees; 0 = closed, positive = opens upward/front
+lid_side_clearance = 0.75;     // clearance per side between lid and side walls
+lid_end_clearance = 1.0;       // clearance where closed lid meets the front panel
 
 // Design parameters recovered/generalized from the DXFs.
 stack_key_height = 3.0;
@@ -83,6 +92,21 @@ front_dz = sin(front_angle)*front_len;
 // Keep the sloping panel inside the side silhouette for very shallow custom bins.
 front_len_safe = min(front_len, (floor_front-2)/max(0.01,cos(front_angle)));
 
+// Optional top/lid geometry.
+top_z = H - t/2;                                      // panel centerline; top surface flush with H
+top_depth = (back_y - t/2) - floor_front;
+front_tip_y = floor_front - cos(front_angle)*front_len_safe;
+front_tip_z = bottom_z + sin(front_angle)*front_len_safe;
+lid_hinge_y = floor_front;
+lid_hinge_z = H;
+lid_width = max(10, W - 2*t - 2*lid_side_clearance);
+lid_closed_length = max(10,
+    sqrt(pow(lid_hinge_y-front_tip_y,2) +
+         pow(lid_hinge_z-front_tip_z,2)) - lid_end_clearance);
+lid_closed_angle = atan2(front_tip_z-lid_hinge_z,
+                         front_tip_y-lid_hinge_y);
+lid_rotation = lid_closed_angle - lid_open_angle;
+
 function clamp(v, lo, hi) = min(max(v,lo),hi);
 function tab_count(span) = span > 110 ? 2 : 1;
 function tab_centers(span, n) = n == 1 ? [span/2] : [span/4, 3*span/4];
@@ -99,11 +123,18 @@ bottom_centers = tab_centers(bottom_depth,bottom_n);
 bottom_tab = bottom_tab_length(bottom_depth,bottom_n);
 front_tab = front_tab_length(front_len_safe);
 
+top_n = tab_count(top_depth);
+top_centers = tab_centers(top_depth, top_n);
+top_tab = bottom_tab_length(top_depth, top_n);
+
 assert(W > 2*t + 20, "bin width is too small for this stock thickness");
 assert(D > 50, "bin depth is too small");
 assert(H > 35, "bin height is too small");
 assert(bottom_depth > 25, "bottom panel became too short; increase depth or reduce edge_land");
 assert(bit_diameter > 0, "bit_diameter must be positive");
+assert(top_depth > 25, "top panel became too short; increase depth or reduce edge_land");
+assert(lid_open_angle >= 0 && lid_open_angle <= 140,
+       "lid_open_angle must be between 0 and 140 degrees");
 assert(relief_type == "none" || relief_type == "dogbone" || relief_type == "tbone",
        "relief_type must be none, dogbone, or tbone");
 
@@ -350,6 +381,14 @@ module side_panel_2d() {
             translate([floor_front+cc,bottom_z])
                 relieved_slot(bottom_tab, t+fit_clearance);
 
+        // Optional top-panel mortises. The top piece uses the same side-tab
+        // joinery as the bottom panel; include_lid implies include_top because
+        // the lid hinge mounts along the top panel's front edge.
+        if (include_top || include_lid)
+            for (cc=top_centers)
+                translate([floor_front+cc,top_z])
+                    relieved_slot(top_tab, t+fit_clearance);
+
         // Sloping front-panel mortise, centered on its side tab.
         translate([
             floor_front-cos(front_angle)*front_len_safe/2,
@@ -372,6 +411,18 @@ module front_panel_2d() {
     tabbed_panel_base(W,front_len_safe,[front_len_safe/2],front_tab,false);
 }
 
+module top_panel_2d() {
+    // Horizontal fixed top. Side tabs are identical in construction to the
+    // bottom-panel tabs and land in relieved mortises in the side walls.
+    tabbed_panel_base(W,top_depth,top_centers,top_tab,false);
+}
+
+module lid_panel_2d() {
+    // Hardware-hinged front lid. It fits between the side walls and closes
+    // against the upper edge of the existing sloped front panel.
+    square([lid_width,lid_closed_length]);
+}
+
 // ------------------------------ Flat layout --------------------------------
 module flat_layout() {
     side_h = H+stack_key_height;
@@ -382,6 +433,16 @@ module flat_layout() {
     translate([D+layout_gap,0]) back_panel_2d();
     translate([D+layout_gap,H+stack_key_height+layout_gap]) bottom_panel_2d();
     translate([D+layout_gap+W+layout_gap,0]) front_panel_2d();
+
+    if (include_top || include_lid)
+        translate([D+layout_gap,
+                   H+stack_key_height+layout_gap+bottom_depth+layout_gap])
+            top_panel_2d();
+
+    if (include_lid)
+        translate([D+layout_gap+W+layout_gap,
+                   front_len_safe+layout_gap])
+            lid_panel_2d();
 }
 
 // ----------------------------- Relief test ---------------------------------
@@ -441,12 +502,29 @@ module front_3d() {
     ]) linear_extrude(height=t) front_panel_2d();
 }
 
+module top_3d() {
+    translate([0,floor_front,top_z-t/2])
+        linear_extrude(height=t) top_panel_2d();
+}
+
+module lid_3d() {
+    // External hardware hinge is represented by its pivot axis rather than
+    // modeled as a CNC part. Positive lid_open_angle swings the lid upward
+    // and toward the front of the bin.
+    translate([t+lid_side_clearance,lid_hinge_y,lid_hinge_z])
+        rotate([lid_rotation,0,0])
+            linear_extrude(height=t,center=true)
+                lid_panel_2d();
+}
+
 module assembly() {
     side_3d(0);
     side_3d(W-t);
     back_3d();
     bottom_3d();
     front_3d();
+    if (include_top || include_lid) top_3d();
+    if (include_lid) lid_3d();
 }
 
 // -------------------------------- Output -----------------------------------
@@ -456,5 +534,7 @@ else if (output == "side") side_panel_2d();
 else if (output == "back") back_panel_2d();
 else if (output == "bottom") bottom_panel_2d();
 else if (output == "front") front_panel_2d();
+else if (output == "top") top_panel_2d();
+else if (output == "lid") lid_panel_2d();
 else if (output == "relief_test") relief_test();
 else echo("Unknown output mode: ",output);
