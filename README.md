@@ -10,10 +10,11 @@ Parametric OpenSCAD generator for CNC-cut, stackable screw/storage bins. The mod
 - **Measured stock thickness** — set `wood_thickness` to the actual plywood/MDF thickness.
 - **Cutter-driven reliefs** — every CNC relief uses `bit_diameter / 2` as its radius.
 - **Relief modes** — `none`, `dogbone`, and `tbone`.
-- **Independent fit clearance** — `fit_clearance` changes female mortise width without changing cutter geometry.
+- **Independent fit clearance** — `fit_clearance` widens and lengthens female mortises without changing cutter geometry; `stack_clearance` sets the play in the stacking keys separately.
 - **Flat and assembled outputs** — export a CNC layout to DXF or inspect the assembled 3D model.
-- **Optional fixed top** — a tabbed top panel uses the same side mortise/tab construction as the bottom.
-- **Optional hinged lid** — a separate front lid pivots from the top panel's front lip and can be previewed open or closed.
+- **Optional fixed top** — a tabbed top panel uses the same side mortise/tab construction as the bottom, recessed just below the stacking rim.
+- **Optional hinged lid** — a separate front lid hinges just in front of the top panel, sits flush with the side walls and closes onto the front panel's top edge.
+- **Fit checks** — `output="fit_check"` renders any overlap between parts, and `output="fit_coupon"` cuts a small test piece for dialing in clearances.
 
 ## Relief geometry
 
@@ -39,13 +40,16 @@ relief_type = "tbone"; // [none,dogbone,tbone]
 | `wood_thickness` | `0.25*inch` | Actual sheet thickness |
 | `bit_diameter` | `3.70` | Actual CNC cutter diameter |
 | `relief_type` | `"tbone"` | `none`, `dogbone`, or `tbone` |
-| `fit_clearance` | `0.15` | Extra width applied to female slots |
+| `fit_clearance` | `0.15` | Extra width and length applied to female slots |
+| `stack_clearance` | `0.40` | Gap per side between stacking keys and the recesses they sit in |
 | `include_top` | `false` | Add the fixed tabbed top panel |
 | `include_lid` | `false` | Add the hinged front lid; also enables the fixed top |
 | `lid_open_angle` | `0` | Lid preview angle; 0° is closed |
 | `lid_side_clearance` | `0.75` | Clearance per side for the lid |
-| `lid_end_clearance` | `1.0` | Clearance where the closed lid meets the front panel |
-| `output` | `"layout"` | `layout`, `assembly`, `side`, `back`, `bottom`, `front`, `top`, `lid`, or `relief_test` |
+| `lid_end_clearance` | `0.0` | Gap between the closed lid and the front panel's top edge; 0 means the lid rests on it |
+| `lid_hinge_gap` | `1.0` | Gap between the lid's hinge end and the top panel's front edge |
+| `top_web` | `2.0` | Side-wall material left above the top panel's mortise |
+| `output` | `"layout"` | `layout`, `assembly`, `side`, `back`, `bottom`, `front`, `top`, `lid`, `relief_test`, `fit_coupon`, or `fit_check` |
 
 All dimensions are millimetres. The source defines `inch = 25.4` so imperial stock sizes remain readable.
 
@@ -95,7 +99,9 @@ openscad -o closed-bin.stl \
   stackable_bin.scad
 ```
 
-The lid is designed for external hinge hardware (for example a small piano or butt hinge) mounted along the fixed top panel's front edge. The OpenSCAD model represents the pivot and lid motion, while leaving screw-hole placement hardware-specific.
+The lid is designed for a surface-mounted hinge (for example a small piano or butt hinge) on the outside of the bin. The pivot axis is the lid's outer edge at its hinge end, level with the top panel's upper face; one leaf goes on the top panel and the other on the lid, bridging the small gap between them. Closed, the lid rests on the top end face of the sloped front panel, which acts as its stop. Screw-hole placement is left to the hardware.
+
+With another bin stacked on top, the lid can only open part way before it hits the upper bin. OpenSCAD echoes this limit as `stacked_lid_limit` (about 107° for the M preset) and prints a note when `lid_open_angle` is past it.
 
 For a custom 150 × 220 × 120 mm bin:
 
@@ -113,9 +119,21 @@ Measure the actual sheet with calipers and use that value for `wood_thickness`. 
 
 Before cutting a full sheet, `output="relief_test"` provides a compact comparison of the unrelieved, dogbone, and T-bone slot geometry.
 
+`output="fit_coupon"` is a small test cut for choosing clearances. It has a plate with four mortises (`fit_coupon_steps`, 0 to 0.3 mm by default), a tab piece to try in each, and a key strip with a recess strip at four stacking clearances (`stack_coupon_steps`, 0.2 to 0.5 mm). Each slot or recess is marked with one to four small holes in the order of its step list. Use the best-fitting values for `fit_clearance` and `stack_clearance`.
+
+## Fit check
+
+`output="fit_check"` renders the intersection of every pair of parts in the assembly, so an empty render means nothing overlaps. Set `fit_stacked=true` to check the bin against a second, closed bin stacked on top instead.
+
+`tools/fit_check.py` runs those checks for the S, M and L presets at several lid angles (including the stacked limit) and exits non-zero if any parts overlap:
+
+```bash
+python3 tools/fit_check.py
+```
+
 ## Render automation
 
-[GitHub Actions](.github/workflows/render-openscad.yml) regenerates the PNG previews with OpenSCAD whenever the model or render workflow changes, then commits the updated renders under `docs/`.
+[GitHub Actions](.github/workflows/render-openscad.yml) regenerates the PNG previews with OpenSCAD whenever the model or render workflow changes, then commits the updated renders under `docs/`. A [separate workflow](.github/workflows/fit-check.yml) runs `tools/fit_check.py` on pushes and pull requests.
 
 ## Source
 
