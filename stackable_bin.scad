@@ -16,6 +16,7 @@
 
   Main outputs:
       output = "layout"    -> flat CNC parts, suitable for DXF export
+      output = "sheets"    -> parts for bin_count bins nested onto stock sheets
       output = "assembly"  -> 3D assembly preview
       output = "side"      -> one side panel
       output = "back"      -> back panel
@@ -38,7 +39,8 @@
       1. Set preset or custom_size.
       2. Set wood_thickness to measured material thickness.
       3. Set bit_diameter to the actual cutter diameter.
-      4. Set output="layout" and Export -> DXF in OpenSCAD.
+      4. Set output="layout" and Export -> DXF in OpenSCAD, or set
+         output="sheets" with sheet_size and export each sheet_index.
 */
 
 $fn = 48;
@@ -52,7 +54,7 @@ bit_diameter = 3.70;           // actual cutter diameter; defines every relief a
 relief_type = "tbone";         // [none,dogbone,tbone]
 fit_clearance = 0.15;          // added to female slot width and length
 stack_clearance = 0.40;        // gap per side between stacking keys and recesses
-output = "layout";             // [layout,assembly,side,back,bottom,front,top,lid,relief_test,fit_coupon,fit_check]
+output = "layout";             // [layout,sheets,assembly,side,back,bottom,front,top,lid,relief_test,fit_coupon,fit_check]
 layout_gap = 12;
 
 // Optional closure pieces.
@@ -64,6 +66,44 @@ lid_end_clearance = 0.0;       // gap between closed lid and the front panel's t
 lid_hinge_gap = 1.0;           // gap between the lid's hinge end and the top panel's front edge
 top_web = 2.0;                 // side-wall material left above the top-panel mortise
 fit_stacked = false;           // fit_check: test against a second bin stacked on top
+
+// Hinge screw holes (lid only). Defaults suit a 1.5" (38 mm) butt hinge.
+// Holes smaller than bit_diameter are drill points, not routed holes.
+hinge_count = 2;               // 0 = no holes; 1 with a long hinge_length = piano hinge
+hinge_length = 0;              // hinge length along the axis; 0 = up to 38 mm, as fits
+hinge_inset = 8;               // gap from each side wall to the nearest hinge
+hinge_holes_per_leaf = 2;
+hinge_hole_offset = 11;        // knuckle axis to the screw-hole row, on each leaf
+hinge_hole_d = 1.6;            // pilot-hole diameter
+
+// Magnetic lid catch (lid only): a rail behind the front panel's top edge that
+// the closed lid rests on, with magnet holes in the rail and the lid.
+lid_catch = true;
+magnet_count = 2;
+magnet_d = 6.0;                // magnet diameter
+magnet_clearance = 0.10;       // added to magnet hole diameter for a press fit
+lid_magnet_holes = true;       // false = pilot hole for a steel screw instead
+
+// Removable dividers that drop into slots in the floor and interlock where
+// they cross.
+divider_cols = 0;              // dividers running front to back (split the width)
+divider_rows = 0;              // dividers running side to side (split the depth)
+divider_height = 0;            // height above the floor; 0 = half the bin height
+divider_clearance = 0.30;      // slip-fit gap in floor slots and crossing slots
+
+// Label holder: a window in the front panel with a card channel glued behind it.
+include_label = false;
+label_size = [0,0];            // card [width, height]; 0 = sized to the front panel
+label_lip = 3;                 // card overlap hidden behind each edge of the window
+label_border = 6;              // width of the channel's side and bottom walls
+
+// Sheet nesting (output="sheets").
+sheet_size = [600,400];        // stock sheet [width, height]
+sheet_margin = 10;             // keep-out around the sheet edge
+sheet_gap = 8;                 // gap between parts; must exceed bit_diameter
+bin_count = 1;                 // number of complete bins to nest
+sheet_index = -1;              // -1 = all sheets side by side; n = only sheet n
+allow_rotate = true;           // let parts turn 90 degrees to fit
 
 // Design parameters recovered/generalized from the DXFs.
 stack_key_height = 3.0;
@@ -157,6 +197,76 @@ top_n = tab_count(top_depth);
 top_centers = tab_centers(top_depth, top_n);
 top_tab = bottom_tab_length(top_depth, top_n);
 
+function even_centers(lo, hi, n) = n < 1 ? [] : [for (i=[1:n]) lo + (hi-lo)*i/(n+1)];
+// Point in side-panel [y,z] coordinates from front-panel [along, normal] coordinates.
+function front_pt(f, n) = front_origin + f*front_dir + n*front_in;
+
+// Lid catch rail: lies against the plane of the front panel's top end face,
+// standing inward from the front panel's inner face.
+has_catch = include_lid && lid_catch;
+catch_h = max(16, magnet_d + 10);                    // rail extent along front_in
+catch_tab = catch_h - 6;
+catch_mortise_c = front_pt(front_len_safe - t/2, t/2 + catch_h/2);
+magnet_x = even_centers(t, W-t, magnet_count);       // global X of magnet centers
+magnet_hole = magnet_d + magnet_clearance;
+lid_magnet_y = lid_near - (t/2 + catch_h/2);         // lid local Y of magnets
+
+// Hinge screw holes, as global X positions; the rows sit hinge_hole_offset
+// from the knuckle axis on the top panel and on the lid.
+hinge_len = hinge_length > 0 ? hinge_length :
+    hinge_count < 1 ? 0 : min(38, floor((W - 2*t - 2*hinge_inset - 4)/hinge_count));
+hinge_centers = hinge_count < 1 ? [] :
+    hinge_count == 1 ? [W/2] :
+    [for (k=[0:hinge_count-1])
+        t + hinge_inset + hinge_len/2 +
+        k*(W - 2*t - 2*hinge_inset - hinge_len)/(hinge_count-1)];
+hinge_hole_x = [for (c=hinge_centers, j=[0:hinge_holes_per_leaf-1])
+    hinge_holes_per_leaf == 1 ? c :
+    c + (j - (hinge_holes_per_leaf-1)/2)*(hinge_len - 10)/(hinge_holes_per_leaf-1)];
+top_hinge_y = lid_hinge[0] + hinge_hole_offset - top_front;  // top panel local Y
+
+// Label holder, in front-panel local coordinates (X across, Y up the slope).
+// The channel opens toward the top of the front panel; the card drops in from
+// inside the bin and shows through the window.
+label_clr = 0.5;
+label_top = front_len_safe - (has_catch ? t + 4 : 2);  // top of the channel walls
+label_card = [
+    label_size[0] > 0 ? label_size[0] : min(80, W - 2*t - 2*label_border - 16),
+    label_size[1] > 0 ? label_size[1] :
+        min(30, label_top - label_border - label_clr - 6)
+];
+label_outer = [label_card[0] + label_clr + 2*label_border,
+               label_card[1] + label_clr + label_border];
+label_x0 = (W - label_outer[0])/2;                  // channel's lower-left corner
+label_y0 = label_top - label_outer[1];
+label_card_y0 = label_y0 + label_border;            // card rests here
+label_window = [label_card[0] - 2*label_lip, label_card[1] - 2*label_lip];
+
+// Dividers. Both kinds stand on the floor between div_front and the back
+// panel; div_front clears the label holder's back face when there is one.
+floor_top = bottom_z + t/2;
+divider_h = divider_height > 0 ? divider_height : round((H - floor_top)/2);
+label_back_y = front_pt(label_y0, t/2 + 2*t)[0];
+div_front = (include_label ? max(floor_start, label_back_y) : floor_start)
+            + divider_clearance;
+div_back = back_y - t/2 - divider_clearance;
+div_col_x = even_centers(t, W-t, divider_cols);
+div_row_y = even_centers(div_front, div_back, divider_rows);
+div_col_len = div_back - div_front;
+div_row_x0 = t + divider_clearance;
+div_row_len = W - 2*t - 2*divider_clearance;
+
+// One floor tab centered between neighbouring crossings (or ends).
+function segment_tabs(lo, hi, cuts) =
+    let(edges = concat([lo], cuts, [hi]))
+    [for (i=[0:len(edges)-2])
+        let(a = edges[i] + (i == 0 ? 0 : t/2) + bit_diameter,
+            b = edges[i+1] - (i == len(edges)-2 ? 0 : t/2) - bit_diameter,
+            tl = min(30, b - a))
+        [(a+b)/2, tl]];
+div_col_tabs = segment_tabs(div_front, div_back, div_row_y);  // global Y centers
+div_row_tabs = segment_tabs(div_row_x0, div_row_x0 + div_row_len, div_col_x);
+
 assert(W > 2*t + 20, "bin width is too small for this stock thickness");
 assert(D > 50, "bin depth is too small");
 assert(H > 35, "bin height is too small");
@@ -172,6 +282,24 @@ assert(!include_lid || lid_far < t/2,
        "lid no longer covers the front panel's top edge");
 assert(bottom_z - (t+fit_clearance)/2 - relief_reach() > stack_key_height + stack_clearance + 1,
        "bottom mortise runs into the stacking recess; increase edge_land");
+assert(!has_catch || magnet_hole > bit_diameter,
+       "magnet holes must be larger than bit_diameter to be routed");
+assert(!has_catch || r + fit_clearance/2 < t - 1.5,
+       "catch-rail mortise would break out of the side panel; use thicker stock");
+assert(!include_lid || hinge_count == 0 ||
+       (top_hinge_y > hinge_hole_d/2 + 2 && top_hinge_y < top_depth - hinge_hole_d/2 - 2),
+       "hinge holes miss the top panel; adjust hinge_hole_offset to your hinge");
+assert(!include_lid || hinge_count < 2 ||
+       W - 2*t - 2*hinge_inset >= hinge_count*hinge_len,
+       "hinges do not fit across the lid; reduce hinge_count or hinge_length");
+assert(!include_label || (label_window[0] > 10 && label_window[1] > 8 && label_y0 > 4),
+       "label does not fit on the front panel; set label_size or disable include_label");
+assert(divider_cols + divider_rows == 0 ||
+       floor_top + divider_h < ((include_top || include_lid) ? top_z - t/2 - 2 : H),
+       "dividers are too tall for the bin");
+assert(divider_cols + divider_rows == 0 ||
+       min([for (tb=concat(div_col_tabs, div_row_tabs)) tb[1]]) >= 8,
+       "too many dividers for this bin size");
 assert(relief_type == "none" || relief_type == "dogbone" || relief_type == "tbone",
        "relief_type must be none, dogbone, or tbone");
 
@@ -438,6 +566,12 @@ module side_panel_2d() {
         ])
             rotate(180-front_angle)
                 relieved_slot(front_tab+fit_clearance, t+fit_clearance);
+
+        // Lid catch-rail mortise, just behind the front panel's top end.
+        if (has_catch)
+            translate(catch_mortise_c)
+                rotate(atan2(front_in[1], front_in[0]))
+                    relieved_slot(catch_tab+fit_clearance, t+fit_clearance);
     }
 }
 
@@ -446,45 +580,228 @@ module back_panel_2d() {
 }
 
 module bottom_panel_2d() {
-    tabbed_panel_base(W,bottom_depth,bottom_centers,bottom_tab,false);
+    difference() {
+        tabbed_panel_base(W,bottom_depth,bottom_centers,bottom_tab,false);
+
+        // Loose slots for the divider tabs.
+        for (x=div_col_x, tb=div_col_tabs)
+            translate([x, tb[0]-floor_start])
+                rotate(90)
+                    relieved_slot(tb[1]+divider_clearance, t+divider_clearance);
+        for (y=div_row_y, tb=div_row_tabs)
+            translate([tb[0], y-floor_start])
+                relieved_slot(tb[1]+divider_clearance, t+divider_clearance);
+    }
 }
 
 module front_panel_2d() {
-    tabbed_panel_base(W,front_len_safe,[front_len_safe/2],front_tab,false);
+    difference() {
+        tabbed_panel_base(W,front_len_safe,[front_len_safe/2],front_tab,false);
+
+        // Label window; its corners take the cutter radius.
+        if (include_label)
+            translate([label_x0 + label_border + label_clr/2 + label_lip,
+                       label_card_y0 + label_lip])
+                offset(r=r) offset(delta=-r) square(label_window);
+    }
 }
 
 module top_panel_2d() {
     // Horizontal fixed top. Side tabs are identical in construction to the
     // bottom-panel tabs and land in relieved mortises in the side walls.
-    tabbed_panel_base(W,top_depth,top_centers,top_tab,false);
+    difference() {
+        tabbed_panel_base(W,top_depth,top_centers,top_tab,false);
+        if (include_lid)
+            for (x=hinge_hole_x)
+                translate([x, top_hinge_y]) circle(d=hinge_hole_d);
+    }
 }
 
 module lid_panel_2d() {
     // Hardware-hinged front lid. It fits between the side walls and closes
-    // onto the top end face of the sloped front panel.
-    square([lid_width,lid_length]);
+    // onto the top end face of the sloped front panel (and the catch rail).
+    x0 = t + lid_side_clearance;
+    difference() {
+        square([lid_width,lid_length]);
+        for (x=hinge_hole_x)
+            translate([x-x0, hinge_hole_offset]) circle(d=hinge_hole_d);
+        if (has_catch)
+            for (x=magnet_x)
+                translate([x-x0, lid_magnet_y])
+                    circle(d=lid_magnet_holes ? magnet_hole : hinge_hole_d);
+    }
 }
 
-// ------------------------------ Flat layout --------------------------------
+module catch_rail_2d() {
+    // Cross-panel with side tabs like the others; the closed lid rests on its
+    // upper edge face, where the magnets sit.
+    difference() {
+        tabbed_panel_base(W,catch_h,[catch_h/2],catch_tab,false);
+        for (x=magnet_x)
+            translate([x, catch_h/2]) circle(d=magnet_hole);
+    }
+}
+
+module label_spacer_2d() {
+    // U-shaped channel wall, open toward the top of the front panel.
+    difference() {
+        square(label_outer);
+        translate([label_border, label_border])
+            square([label_card[0]+label_clr, label_outer[1]]);
+    }
+}
+
+module label_backer_2d() {
+    square(label_outer);
+}
+
+module divider_2d(len, x0, tabs, cuts, cut_from_top) {
+    // Local X runs along the divider from global position x0; Y runs up from
+    // the floor's top face. Tabs hang through the floor slots below Y=0, and
+    // half-depth slots interlock with the crossing dividers.
+    rr = bit_diameter/2;
+    db = rr/sqrt(2);
+    slot_depth = divider_h/2 + divider_clearance/2;
+    ext = 2*bit_diameter + 2;                        // runs the slot past the edge
+    difference() {
+        union() {
+            square([len, divider_h]);
+            for (tb=tabs)
+                translate([tb[0]-x0-tb[1]/2, -t]) square([tb[1], t]);
+        }
+        for (tb=tabs) {
+            a = tb[0]-x0-tb[1]/2;
+            b = a+tb[1];
+            if (rr > 0 && relief_type == "tbone") {
+                translate([a-rr,0]) circle(r=rr);
+                translate([b+rr,0]) circle(r=rr);
+            } else if (rr > 0 && relief_type == "dogbone") {
+                translate([a-db,-db]) circle(r=rr);
+                translate([b+db,-db]) circle(r=rr);
+            }
+        }
+        for (c=cuts)
+            translate([c-x0, cut_from_top ? divider_h - slot_depth + (slot_depth+ext)/2
+                                          : slot_depth - (slot_depth+ext)/2])
+                rotate(90)
+                    relieved_slot(slot_depth+ext, t+divider_clearance);
+    }
+}
+
+module divider_col_2d() {
+    divider_2d(div_col_len, div_front, div_col_tabs, div_row_y, true);
+}
+
+module divider_row_2d() {
+    divider_2d(div_row_len, div_row_x0, div_row_tabs, div_col_x, false);
+}
+
+// --------------------------- Layout and nesting ----------------------------
+// Every flat part of one bin as [kind, width, height], each drawn with its
+// bounding box's lower-left corner at the origin.
+function bin_parts() = concat(
+    [["side", D, H+stack_key_height],
+     ["side", D, H+stack_key_height],
+     ["back", W, H+stack_key_height],
+     ["bottom", W, bottom_depth],
+     ["front", W, front_len_safe]],
+    (include_top || include_lid) ? [["top", W, top_depth]] : [],
+    include_lid ? [["lid", lid_width, lid_length]] : [],
+    has_catch ? [["catch", W, catch_h]] : [],
+    include_label ? [["label_spacer", label_outer[0], label_outer[1]],
+                     ["label_backer", label_outer[0], label_outer[1]]] : [],
+    [for (i=[0:max(0,divider_cols-1)]) if (i < divider_cols)
+        ["div_col", div_col_len, divider_h+t]],
+    [for (j=[0:max(0,divider_rows-1)]) if (j < divider_rows)
+        ["div_row", div_row_len, divider_h+t]]
+);
+
+module draw_part(kind) {
+    if (kind == "side") side_panel_2d();
+    else if (kind == "back") back_panel_2d();
+    else if (kind == "bottom") bottom_panel_2d();
+    else if (kind == "front") front_panel_2d();
+    else if (kind == "top") top_panel_2d();
+    else if (kind == "lid") lid_panel_2d();
+    else if (kind == "catch") catch_rail_2d();
+    else if (kind == "label_spacer") label_spacer_2d();
+    else if (kind == "label_backer") label_backer_2d();
+    else if (kind == "div_col") translate([0,t]) divider_col_2d();
+    else if (kind == "div_row") translate([0,t]) divider_row_2d();
+}
+
+// Turn a part 90 degrees when that makes it wider than tall (shorter shelves)
+// or is the only way it fits the usable width. Result: [w, h, kind, turned].
+function orient(p, usable_w) =
+    let(w = p[1], h = p[2],
+        turn = allow_rotate && ((w < h && h <= usable_w) || w > usable_w))
+    turn ? [h, w, p[0], true] : [w, h, p[0], false];
+
+function sort_by_height(v) = len(v) <= 1 ? v :
+    let(pv = v[floor(len(v)/2)][1])
+    concat(sort_by_height([for (e=v) if (e[1] > pv) e]),
+           [for (e=v) if (e[1] == pv) e],
+           sort_by_height([for (e=v) if (e[1] < pv) e]));
+
+// Shelf packing: tallest parts first, left to right in rows, starting a new
+// row when the width runs out and a new sheet when the height does.
+// Returns [[sheet, x, y, item], ...].
+function shelf_pack(items, usable, gap, i=0, sheet=0, x=0, y=0, row_h=0, acc=[]) =
+    i >= len(items) ? acc :
+    let(w = items[i][0], h = items[i][1],
+        same_row = x + w <= usable[0],
+        nx = same_row ? x : 0,
+        ny = same_row ? y : y + row_h + gap,
+        nrow = same_row ? row_h : 0,
+        new_sheet = ny + h > usable[1],
+        s2 = new_sheet ? sheet + 1 : sheet,
+        x2 = new_sheet ? 0 : nx,
+        y2 = new_sheet ? 0 : ny,
+        r2 = new_sheet ? 0 : nrow)
+    shelf_pack(items, usable, gap, i+1, s2, x2 + w + gap, y2, max(r2, h),
+               concat(acc, [[s2, x2, y2, items[i]]]));
+
+function nest(parts, usable, gap) =
+    shelf_pack(sort_by_height([for (p=parts) orient(p, usable[0])]), usable, gap);
+
+module place_part(item) {
+    // item = [w, h, kind, turned]
+    if (item[3]) translate([item[0],0]) rotate(90) draw_part(item[2]);
+    else draw_part(item[2]);
+}
+
 module flat_layout() {
-    side_h = H+stack_key_height;
+    // All parts of one bin, packed into a strip about as wide as the
+    // original fixed layout.
+    for (pl=nest(bin_parts(), [D + 2*W + 2*layout_gap, 1e6], layout_gap))
+        translate([pl[1], pl[2]]) place_part(pl[3]);
+}
 
-    side_panel_2d();
-    translate([0,side_h+layout_gap]) side_panel_2d();
+sheet_usable = [sheet_size[0] - 2*sheet_margin, sheet_size[1] - 2*sheet_margin];
+sheet_plan = output == "sheets" ?
+    nest([for (b=[1:bin_count], p=bin_parts()) p], sheet_usable, sheet_gap) : [];
+sheet_count = len(sheet_plan) == 0 ? 0 : max([for (pl=sheet_plan) pl[0]]) + 1;
 
-    translate([D+layout_gap,0]) back_panel_2d();
-    translate([D+layout_gap,H+stack_key_height+layout_gap]) bottom_panel_2d();
-    translate([D+layout_gap+W+layout_gap,0]) front_panel_2d();
-
-    if (include_top || include_lid)
-        translate([D+layout_gap,
-                   H+stack_key_height+layout_gap+bottom_depth+layout_gap])
-            top_panel_2d();
-
-    if (include_lid)
-        translate([D+layout_gap+W+layout_gap,
-                   front_len_safe+layout_gap])
-            lid_panel_2d();
+module sheet_layout() {
+    for (pl=sheet_plan) {
+        it = pl[3];
+        assert(it[0] <= sheet_usable[0] && it[1] <= sheet_usable[1],
+               str("part '", it[2], "' does not fit on the sheet"));
+    }
+    echo(sheet_count=sheet_count);
+    for (s=[0:sheet_count-1])
+        if (sheet_index < 0 || sheet_index == s)
+            translate([sheet_index < 0 ? s*(sheet_size[0] + 50) : 0, 0]) {
+                // Sheet outline: preview only, never exported.
+                %difference() {
+                    square(sheet_size);
+                    translate([0.5,0.5]) square(sheet_size - [1,1]);
+                }
+                for (pl=sheet_plan)
+                    if (pl[0] == s)
+                        translate([sheet_margin + pl[1], sheet_margin + pl[2]])
+                            place_part(pl[3]);
+            }
 }
 
 // ----------------------------- Relief test ---------------------------------
@@ -586,8 +903,9 @@ module bottom_3d() {
         linear_extrude(height=t) bottom_panel_2d();
 }
 
-module front_3d() {
-    // local X -> width; local Y -> up-and-forward slope; local Z -> panel normal.
+module front_frame() {
+    // local X -> width; local Y -> up-and-forward slope; local Z -> panel
+    // normal, from the outer face (Z=0) to the inner face (Z=t).
     ca = cos(front_angle);
     sa = sin(front_angle);
     multmatrix([
@@ -595,7 +913,49 @@ module front_3d() {
         [0,-ca, sa, floor_front - sa*t/2],
         [0, sa, ca, bottom_z - ca*t/2],
         [0, 0,  0, 1]
-    ]) linear_extrude(height=t) front_panel_2d();
+    ]) children();
+}
+
+module front_3d() {
+    front_frame() linear_extrude(height=t) front_panel_2d();
+}
+
+module label_3d(layer) {
+    // Glued to the front panel's inner face: spacer first, then backer.
+    front_frame()
+        translate([label_x0, label_y0, (1+layer)*t])
+            linear_extrude(height=t)
+                if (layer == 0) label_spacer_2d(); else label_backer_2d();
+}
+
+module catch_rail_3d() {
+    // local X -> width; local Y -> front_in from the front panel's inner face;
+    // local Z -> front_dir, ending in the plane of its top end face.
+    o = front_pt(front_len_safe - t, t/2);
+    multmatrix([
+        [1, 0,           0,            0],
+        [0, front_in[0], front_dir[0], o[0]],
+        [0, front_in[1], front_dir[1], o[1]],
+        [0, 0,           0,            1]
+    ]) linear_extrude(height=t) catch_rail_2d();
+}
+
+module divider_col_3d(x) {
+    multmatrix([
+        [0,0,1,x-t/2],
+        [1,0,0,div_front],
+        [0,1,0,floor_top],
+        [0,0,0,1]
+    ]) linear_extrude(height=t) divider_col_2d();
+}
+
+module divider_row_3d(y) {
+    multmatrix([
+        [1,0,0,div_row_x0],
+        [0,0,1,y-t/2],
+        [0,1,0,floor_top],
+        [0,0,0,1]
+    ]) linear_extrude(height=t) divider_row_2d();
 }
 
 module top_3d() {
@@ -626,10 +986,18 @@ module part_3d(i, lid_angle=lid_open_angle) {
     else if (i == 4) front_3d();
     else if (i == 5 && (include_top || include_lid)) top_3d();
     else if (i == 6 && include_lid) lid_3d(lid_angle);
+    else if (i == 7 && has_catch) catch_rail_3d();
+    else if (i == 8 && include_label) label_3d(0);
+    else if (i == 9 && include_label) label_3d(1);
+    else if (i >= 10 && i < 10 + divider_cols) divider_col_3d(div_col_x[i-10]);
+    else if (i >= 10 + divider_cols && i < part_count)
+        divider_row_3d(div_row_y[i-10-divider_cols]);
 }
 
+part_count = 10 + divider_cols + divider_rows;
+
 module assembly(lid_angle=lid_open_angle) {
-    for (i=[0:6]) part_3d(i, lid_angle);
+    for (i=[0:part_count-1]) part_3d(i, lid_angle);
 }
 
 // ------------------------------- Fit check ---------------------------------
@@ -643,7 +1011,7 @@ module fit_check() {
             translate([0,0,H]) assembly(0);
         }
     else
-        for (i=[0:5], j=[i+1:6])
+        for (i=[0:part_count-2], j=[i+1:part_count-1])
             intersection() { part_3d(i); part_3d(j); }
 }
 
@@ -678,6 +1046,7 @@ if (include_lid && lid_open_angle > stacked_lid_limit)
 
 // -------------------------------- Output -----------------------------------
 if (output == "layout") flat_layout();
+else if (output == "sheets") sheet_layout();
 else if (output == "assembly") assembly();
 else if (output == "side") side_panel_2d();
 else if (output == "back") back_panel_2d();

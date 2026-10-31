@@ -14,6 +14,10 @@ Parametric OpenSCAD generator for CNC-cut, stackable screw/storage bins. The mod
 - **Flat and assembled outputs** — export a CNC layout to DXF or inspect the assembled 3D model.
 - **Optional fixed top** — a tabbed top panel uses the same side mortise/tab construction as the bottom, recessed just below the stacking rim.
 - **Optional hinged lid** — a separate front lid hinges just in front of the top panel, sits flush with the side walls and closes onto the front panel's top edge.
+- **Dividers** — removable front-to-back and side-to-side dividers drop into floor slots and interlock where they cross.
+- **Label holder** — a window in the front panel with a card channel glued behind it.
+- **Hinge holes and magnetic catch** — screw pilot holes for the lid hinges, and a catch rail with magnet holes that the closed lid rests on.
+- **Sheet nesting** — `output="sheets"` packs the parts of one or more bins onto stock sheets of a set size.
 - **Fit checks** — `output="fit_check"` renders any overlap between parts, and `output="fit_coupon"` cuts a small test piece for dialing in clearances.
 
 ## Relief geometry
@@ -49,9 +53,36 @@ relief_type = "tbone"; // [none,dogbone,tbone]
 | `lid_end_clearance` | `0.0` | Gap between the closed lid and the front panel's top edge; 0 means the lid rests on it |
 | `lid_hinge_gap` | `1.0` | Gap between the lid's hinge end and the top panel's front edge |
 | `top_web` | `2.0` | Side-wall material left above the top panel's mortise |
-| `output` | `"layout"` | `layout`, `assembly`, `side`, `back`, `bottom`, `front`, `top`, `lid`, `relief_test`, `fit_coupon`, or `fit_check` |
+| `output` | `"layout"` | `layout`, `sheets`, `assembly`, `side`, `back`, `bottom`, `front`, `top`, `lid`, `relief_test`, `fit_coupon`, or `fit_check` |
 
 All dimensions are millimetres. The source defines `inch = 25.4` so imperial stock sizes remain readable.
+
+### Feature parameters
+
+| Parameter | Default | Purpose |
+| --- | ---: | --- |
+| `divider_cols` | `0` | Dividers running front to back, splitting the width |
+| `divider_rows` | `0` | Dividers running side to side, splitting the depth |
+| `divider_height` | `0` | Height above the floor; 0 means half the bin height |
+| `divider_clearance` | `0.30` | Slip-fit gap in the floor slots and crossing slots |
+| `include_label` | `false` | Add the label window and card channel |
+| `label_size` | `[0,0]` | Card width and height; 0 sizes it to the front panel |
+| `label_lip` | `3` | How far the window edge overlaps the card |
+| `hinge_count` | `2` | Hinges along the lid; 0 for no holes, 1 with a long `hinge_length` for a piano hinge |
+| `hinge_length` | `0` | Hinge length; 0 means up to 38 mm, as fits |
+| `hinge_holes_per_leaf` | `2` | Screw holes per hinge leaf |
+| `hinge_hole_offset` | `11` | Distance from the knuckle axis to the screw-hole row |
+| `hinge_hole_d` | `1.6` | Pilot-hole diameter |
+| `lid_catch` | `true` | Add the magnetic catch rail when the lid is on |
+| `magnet_count` | `2` | Magnets across the rail |
+| `magnet_d` | `6.0` | Magnet diameter |
+| `lid_magnet_holes` | `true` | Magnet holes in the lid; false gives a pilot hole for a steel screw instead |
+| `sheet_size` | `[600,400]` | Stock sheet width and height for `output="sheets"` |
+| `sheet_margin` | `10` | Keep-out around the sheet edge |
+| `sheet_gap` | `8` | Gap between parts; must exceed `bit_diameter` |
+| `bin_count` | `1` | Number of complete bins to nest |
+| `sheet_index` | `-1` | -1 shows every sheet; a number exports only that sheet |
+| `allow_rotate` | `true` | Let parts turn 90° to fit (turn off to keep the grain direction) |
 
 ## Presets
 
@@ -103,6 +134,34 @@ The lid is designed for a surface-mounted hinge (for example a small piano or bu
 
 With another bin stacked on top, the lid can only open part way before it hits the upper bin. OpenSCAD echoes this limit as `stacked_lid_limit` (about 107° for the M preset) and prints a note when `lid_open_angle` is past it.
 
+## Dividers
+
+`divider_cols` and `divider_rows` add removable dividers. Each one has tabs that drop into loose slots in the floor, and where a front-to-back divider crosses a side-to-side one, half-depth slots let them interlock. Nothing is glued, so they lift out to rearrange. Each divider part in the layout is one copy, so a layout with `divider_cols=2` has two identical front-to-back dividers. If you ask for more dividers than the floor can hold, OpenSCAD stops with a message.
+
+## Label holder
+
+With `include_label=true`, the front panel gets a window. Behind it, glue a U-shaped spacer and then a backer onto the panel's inner face. That makes a channel open toward the top of the panel. Drop a card in from inside the bin and it shows through the window. With the defaults the card is about 79 × 30 mm on the M preset; set `label_size` to match your cards.
+
+## Hinge holes and magnetic catch
+
+With a lid, the top panel and the lid get pilot holes for two butt hinges, `hinge_hole_offset` from the knuckle axis. Measure your hinge and set `hinge_length`, `hinge_holes_per_leaf` and `hinge_hole_offset` to match. Holes smaller than the cutter (1.6 mm by default) can't be routed with it, so treat them as drill points.
+
+`lid_catch` adds a rail between the side walls, just behind the front panel's top edge. The closed lid rests on the rail and the front panel. The rail and the lid each get `magnet_count` holes sized for press-fit `magnet_d` magnets, lined up so the magnets meet when the lid closes. Mind the polarity when you glue them in.
+
+## Sheet nesting
+
+`output="sheets"` packs every part of `bin_count` bins onto sheets of `sheet_size`, tallest parts first, in rows. It echoes `sheet_count`. With `sheet_index=-1` it shows all sheets side by side (sheet outlines appear in preview only). To export one sheet at a time, set `sheet_index`:
+
+```bash
+for i in 0 1 2; do
+  openscad -o bins-sheet-$i.dxf \
+    -D 'output="sheets"' -D 'bin_count=4' -D "sheet_index=$i" \
+    -D 'sheet_size=[600,400]' stackable_bin.scad
+done
+```
+
+`sheet_gap` must be larger than the cutter so it can pass between parts. Set `allow_rotate=false` if the grain direction matters.
+
 For a custom 150 × 220 × 120 mm bin:
 
 ```bash
@@ -125,7 +184,7 @@ Before cutting a full sheet, `output="relief_test"` provides a compact compariso
 
 `output="fit_check"` renders the intersection of every pair of parts in the assembly, so an empty render means nothing overlaps. Set `fit_stacked=true` to check the bin against a second, closed bin stacked on top instead.
 
-`tools/fit_check.py` runs those checks for the S, M and L presets at several lid angles (including the stacked limit) and exits non-zero if any parts overlap:
+`tools/fit_check.py` runs those checks for the S, M and L presets at several lid angles (including the stacked limit), plus a build with the catch rail, label holder and dividers, and exits non-zero if any parts overlap:
 
 ```bash
 python3 tools/fit_check.py
