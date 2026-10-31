@@ -58,6 +58,10 @@ def main():
         limit = int(re.search(r"stacked_lid_limit = (\d+)", log).group(1))
         cases += [dict(base, fit_stacked="true", lid_open_angle=a)
                   for a in (0, limit)]
+        # Every optional part at once: catch rail, label holder, dividers.
+        full = dict(base, include_label="true", divider_cols=2, divider_rows=1)
+        cases += [dict(full, lid_open_angle=a) for a in (0, 90)]
+        cases += [dict(full, fit_stacked="true", lid_open_angle=0)]
         for case in cases:
             vol, _ = run(case)
             ok = vol <= MAX_OVERLAP_MM3
