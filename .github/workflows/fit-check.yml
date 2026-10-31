@@ -1,0 +1,30 @@
+name: Fit check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stackable_bin.scad"
+      - "tools/fit_check.py"
+      - ".github/workflows/fit-check.yml"
+  pull_request:
+    paths:
+      - "stackable_bin.scad"
+      - "tools/fit_check.py"
+      - ".github/workflows/fit-check.yml"
+  workflow_dispatch:
+
+jobs:
+  fit-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenSCAD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openscad
+
+      - name: Check parts for overlaps
+        run: python3 tools/fit_check.py
